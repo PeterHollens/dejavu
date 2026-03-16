@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 - Search improvements and developer experience
+
+- `--json` output flag for structured results (scripts, agents, pipelines)
+- `--explain` mode showing score breakdown (vector score, keyword boost, combined)
+- Dynamic MCP server instructions (tells Claude what's in the index)
+- Architecture diagram and expanded documentation in README
+- Score breakdown fields on SearchResult for programmatic access
+
 ## 0.1.0 - Initial release
 
 - Semantic code search via natural language descriptions

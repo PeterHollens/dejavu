@@ -75,6 +75,28 @@ dejavu "React component with tabs" --when "last summer"
 dejavu "deployment script" --path work
 ```
 
+### JSON output (for scripts and agents)
+
+```bash
+dejavu "auth middleware" --json
+```
+
+Returns structured JSON with all result metadata -- useful for piping into other tools or agent workflows.
+
+### Explain mode (score breakdown)
+
+```bash
+dejavu "CSV parser" --explain
+```
+
+Shows how each result was scored:
+```
+#1 parse_csv (Function) — 87%
+  /home/user/projects/etl/parsers.py
+  python | 2025-08-14 | lines 42-78
+  scores: vector=82.3%  keyword_boost=+4.5%  combined=87%
+```
+
 ### Check index status
 
 ```bash
@@ -173,17 +195,52 @@ SQL, HTML, CSS, SCSS, Svelte, Vue, TOML, YAML, JSON, Protobuf, Lua, Julia, Scala
 ## Architecture
 
 ```
-dejavu/
-  cli.py         # Click CLI (search, index, status, config, init)
-  server.py      # MCP server for Claude integration
-  config.py      # TOML config loader
-  db.py          # SQLite + sqlite-vec / numpy fallback
-  embedder.py    # Ollama embedding client
-  indexer.py     # Discovery -> extraction -> embedding pipeline
-  extractor.py   # Tree-sitter AST parsing + sliding window fallback
-  discovery.py   # Repo and file discovery (.gitignore aware)
-  search.py      # Vector search + temporal/language hints + keyword boost
+                         ┌─────────────┐
+                         │  Claude Code │
+                         │  (MCP client)│
+                         └──────┬───────┘
+                                │
+                         ┌──────▼───────┐
+                    ┌────┤  server.py   ├────┐
+                    │    │  (MCP tools) │    │
+                    │    └──────────────┘    │
+               ┌────▼─────┐          ┌──────▼──────┐
+               │  cli.py   │          │  search.py   │
+               │  (Click)  │          │  (pipeline)  │
+               └────┬──────┘          └──────┬───────┘
+                    │                        │
+         ┌──────────▼──────────┐    ┌────────▼────────┐
+         │    indexer.py       │    │   embedder.py    │
+         │  (orchestrator)     │    │ (Ollama client)  │
+         └──┬──────────┬───┘  │    └────────┬─────────┘
+            │          │      │             │
+   ┌────────▼──┐  ┌────▼─────┐    ┌────────▼─────────┐
+   │discovery.py│  │extractor │    │   Ollama (local)  │
+   │(find repos)│  │(tree-sit)│    │ nomic-embed-code  │
+   └────────────┘  └──────────┘    └──────────────────┘
+                        │
+                 ┌──────▼───────┐
+                 │    db.py     │
+                 │   (SQLite +  │
+                 │  sqlite-vec) │
+                 └──────────────┘
 ```
+
+### Search pipeline
+
+1. **Parse query** -- extract language hints ("in python"), temporal hints ("last summer"), path filters
+2. **Clean & embed** -- strip hints from query text, generate vector embedding via Ollama
+3. **Vector search** -- KNN lookup in sqlite-vec (or numpy fallback) with filters applied
+4. **Keyword boost** -- bonus score for results whose name/signature/docstring match query terms
+5. **Rank & deduplicate** -- sort by combined score, remove overlapping chunks from same file
+
+### Indexing pipeline
+
+1. **Discover** -- walk configured root paths, find repos by project markers (.git, package.json, etc.)
+2. **Filter** -- skip binary files, node_modules, .gitignore'd paths, files over 500KB
+3. **Extract** -- tree-sitter AST parsing pulls out functions, classes, methods with names and docstrings
+4. **Embed** -- batch-generate vector embeddings via Ollama's local API
+5. **Store** -- write chunks and embeddings to SQLite (incremental: only re-processes modified files)
 
 ## Contributing
 

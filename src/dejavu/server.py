@@ -18,6 +18,32 @@ from .search import SearchResult, search
 # Lifespan — initialize DB and embedder once
 # ---------------------------------------------------------------------------
 
+def _build_instructions(db: DejavuDB) -> str:
+    """Build dynamic server instructions from the current index state."""
+    try:
+        stats = db.stats()
+    except Exception:
+        return "Déjà Vu — semantic code search. Index may not be initialized yet."
+
+    if stats["chunks"] == 0:
+        return (
+            "Déjà Vu — semantic code search across local codebases.\n"
+            "The index is currently empty. Use dejavu_reindex to index code directories first."
+        )
+
+    lang_list = ", ".join(
+        f"{lang} ({count})" for lang, count in list(stats["languages"].items())[:10]
+    )
+    return (
+        f"Déjà Vu — semantic code search across local codebases.\n"
+        f"Index contains {stats['chunks']} code chunks from {stats['repos']} repos.\n"
+        f"Languages: {lang_list}.\n"
+        f"Search with natural language descriptions. You can include temporal hints "
+        f"('last summer', '2024') and language hints ('in python') directly in the query. "
+        f"Use dejavu_search for finding code, dejavu_reindex to update the index."
+    )
+
+
 @asynccontextmanager
 async def app_lifespan():
     config = DejavuConfig.load()
@@ -28,6 +54,8 @@ async def app_lifespan():
         model=config.embedding_model,
         fallback_model=config.embedding_fallback_model,
     )
+    # Update server instructions based on index state
+    mcp.instructions = _build_instructions(db)
     yield {"config": config, "db": db, "embedder": embedder}
     db.close()
 

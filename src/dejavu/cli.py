@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import time
 
@@ -54,8 +55,10 @@ def _run_async(coro):
 @click.option("--when", "-w", help="Temporal hint ('last summer', '2024', etc.)")
 @click.option("--path", "-p", "path_filter", help="Filter paths containing this string")
 @click.option("--limit", "-n", default=10, help="Max results (default: 10)")
+@click.option("--json-output", "--json", "json_output", is_flag=True, help="Output results as JSON")
+@click.option("--explain", is_flag=True, help="Show score breakdown for each result")
 @click.pass_context
-def main(ctx, query, lang, when, path_filter, limit):
+def main(ctx, query, lang, when, path_filter, limit, json_output, explain):
     """Déjà Vu — Find code you forgot, by describing what it did.
 
     \b
@@ -63,6 +66,8 @@ def main(ctx, query, lang, when, path_filter, limit):
       dejavu "that drag and drop kanban board"
       dejavu "CSV parser that grouped by date" --lang python
       dejavu "animated sidebar component" --when "last summer"
+      dejavu "auth middleware" --explain
+      dejavu "deployment script" --json
       dejavu index ~/projects/my-app
       dejavu status
     """
@@ -113,8 +118,21 @@ def main(ctx, query, lang, when, path_filter, limit):
             ))
 
         if not results:
-            console.print(f"\n[dim]No matches found for:[/dim] \"{query}\"\n")
-            console.print("[dim]Try a different description or broaden your search.[/dim]")
+            if json_output:
+                click.echo(json.dumps({"query": query, "results": []}, indent=2))
+            else:
+                console.print(f"\n[dim]No matches found for:[/dim] \"{query}\"\n")
+                console.print("[dim]Try a different description or broaden your search.[/dim]")
+            return
+
+        # JSON output mode
+        if json_output:
+            output = {
+                "query": query,
+                "result_count": len(results),
+                "results": [r.to_dict() for r in results],
+            }
+            click.echo(json.dumps(output, indent=2))
             return
 
         console.print(f"\n[bold]Found {len(results)} matches[/bold] for \"{query}\"\n")
@@ -135,6 +153,15 @@ def main(ctx, query, lang, when, path_filter, limit):
             console.print(header)
             console.print(f"  [dim]{r.file_path}[/dim]")
             console.print(f"  [dim]{r.language} | {mod_date} | lines {r.start_line}-{r.end_line}[/dim]")
+
+            # Explain mode: show score breakdown
+            if explain:
+                vec_pct = f"{r.vector_score * 100:.1f}%"
+                kw_pct = f"{r.keyword_boost_score * 100:.1f}%"
+                console.print(
+                    f"  [dim cyan]scores: vector={vec_pct}  keyword_boost=+{kw_pct}  "
+                    f"combined={pct}[/dim cyan]"
+                )
 
             # Code preview (first 15 lines)
             preview_lines = r.source_preview.split("\n")[:15]

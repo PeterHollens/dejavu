@@ -224,6 +224,9 @@ class SearchResult:
     source_preview: str
     similarity: float
     file_mtime: float
+    # Score breakdown for --explain mode
+    vector_score: float = 0.0
+    keyword_boost_score: float = 0.0
 
     def format_markdown(self) -> str:
         """Format as markdown for MCP/CLI output."""
@@ -242,6 +245,23 @@ class SearchResult:
             "```",
         ]
         return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """Serialize to dict for JSON output."""
+        return {
+            "rank": self.rank,
+            "file_path": self.file_path,
+            "name": self.name,
+            "chunk_type": self.chunk_type,
+            "language": self.language,
+            "start_line": self.start_line,
+            "end_line": self.end_line,
+            "similarity": round(self.similarity, 4),
+            "vector_score": round(self.vector_score, 4),
+            "keyword_boost": round(self.keyword_boost_score, 4),
+            "modified": datetime.fromtimestamp(self.file_mtime).strftime("%Y-%m-%d"),
+            "source_preview": self.source_preview,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +356,10 @@ async def search(
         if len(source_lines) > 30:
             preview += f"\n// ... ({len(source_lines) - 30} more lines)"
 
+        distance = r["distance"]
+        vec_score = max(0.0, 1.0 - (distance / 2.0))
+        kw_boost = compute_keyword_boost(query, r, keyword_boost)
+
         results.append(SearchResult(
             rank=rank,
             file_path=r["file_path"],
@@ -347,6 +371,8 @@ async def search(
             source_preview=preview,
             similarity=min(score, 1.0),
             file_mtime=r["file_mtime"],
+            vector_score=vec_score,
+            keyword_boost_score=kw_boost,
         ))
 
         if len(results) >= limit:
